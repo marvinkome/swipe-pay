@@ -55,7 +55,7 @@ export default extendTheme({
               backgroundColor: "rgb(0 0 0 / 95%)",
             },
           },
-          _focus: { boxShadow: "0 0 0 1.8px rgba(0, 0, 0, 0.4)" },
+          _focus: { boxShadow: "none" },
         },
 
         outline: {

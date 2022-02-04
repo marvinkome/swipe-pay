@@ -6,6 +6,7 @@ export function saveFrontendFiles(address: string) {
   if (!fs.existsSync(contractsDir)) fs.mkdirSync(contractsDir);
 
   const { abi } = artifacts.readArtifactSync("SwipePayment");
+  const { abi: erc20Abi } = artifacts.readArtifactSync("ERC20");
 
   fs.writeFileSync(
     contractsDir + "/SwipePayment.json",
@@ -13,6 +14,17 @@ export function saveFrontendFiles(address: string) {
       {
         address,
         abi,
+      },
+      null,
+      2
+    )
+  );
+
+  fs.writeFileSync(
+    contractsDir + "/ERC20.json",
+    JSON.stringify(
+      {
+        abi: erc20Abi,
       },
       null,
       2

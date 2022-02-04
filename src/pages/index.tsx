@@ -1,4 +1,7 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
+import * as ethers from "ethers";
+import contractInfo from "abi/SwipePayment.json";
+import erc20ContractInfo from "abi/ERC20.json";
 import {
   Button,
   chakra,
@@ -15,17 +18,78 @@ import {
   ModalHeader,
   ModalOverlay,
   Select,
+  useToast,
+  Link,
 } from "@chakra-ui/react";
 import { useWeb3React, UnsupportedChainIdError } from "@web3-react/core";
-import { injected, switchNetwork } from "libs/wallet";
+import { injected, switchNetwork, TOKENS } from "libs/wallet";
+import { useMutation } from "react-query";
 
 function usePayment() {
-  //
+  const { library, account } = useWeb3React();
+  const toast = useToast();
+
+  return useMutation(
+    async (currency: string) => {
+      const sellerAddress = "0x67009eec57b6BADBFECf4578b8029cB212cdc70b";
+      const amount = "50";
+      const token = TOKENS.find((t) => t.symbol === currency);
+
+      let provider = library.getSigner(account).connectUnchecked();
+      const paymentContract = new ethers.Contract(contractInfo.address, contractInfo.abi, provider);
+      const tokenContract = new ethers.Contract(token?.address || "", erc20ContractInfo.abi, provider);
+
+      const approveTx = await tokenContract.approve(paymentContract.address, ethers.utils.parseUnits(amount, token?.decimals || 18));
+      await approveTx.wait();
+
+      // make payment
+      const tx = await paymentContract.receivePayment(
+        tokenContract.address,
+        sellerAddress,
+        ethers.utils.parseUnits(amount, token?.decimals || 18)
+      );
+      console.log({ tx });
+      await tx.wait();
+
+      const txHash = tx.hash;
+
+      // send transaction to backend
+      const response = await fetch("/api/payment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transactionHash: txHash }),
+      });
+      let payload = await response.json();
+
+      console.log({ payload });
+      return payload;
+    },
+    {
+      onSuccess: () => {
+        toast({
+          title: "Purchase successful 🎉",
+          description: "We've sent you funds to the seller",
+          position: "bottom-right",
+          status: "error",
+        });
+      },
+      onError: (err: any) => {
+        toast({
+          title: "Error making payment",
+          description: err.message,
+          position: "bottom-right",
+          status: "error",
+        });
+      },
+    }
+  );
 }
 
 const Home = () => {
   const { isOpen, onOpen, onClose } = useDisclosure();
   const { active, activate, account } = useWeb3React();
+  const [selectedToken, setSelectedToken] = useState("USDT");
+  const paymentMutation = usePayment();
 
   useEffect(() => {
     const fn = async () => {
@@ -53,12 +117,6 @@ const Home = () => {
         await activate(injected, undefined, true);
       }
     }
-  };
-
-  const onBuyNow = async () => {
-    // make payment
-    // send transaction to backend
-    // backend will confirm payment and payout to seller
   };
 
   return (
@@ -94,13 +152,33 @@ const Home = () => {
             </Stack>
 
             <Stack>
-              <Text fontWeight="600">Purchasing this item would require 2 steps</Text>
-              <Text fontSize="sm">1: A transaction to approve transfer money from your account</Text>
-              <Text fontSize="sm">2: A transaction to make the payment to the seller</Text>
+              {paymentMutation.isSuccess ? (
+                <>
+                  <Text fontWeight="600">Item successful purchased</Text>
+                  <Text fontSize="sm">
+                    1: Your payment transaction{" "}
+                    <Link href={`https://rinkeby.etherscan.io/tx/${paymentMutation.data?.transactionHash}`}>
+                      {paymentMutation.data?.transactionHash}
+                    </Link>
+                  </Text>
+                  <Text fontSize="sm">
+                    2: Seller payout transaction{" "}
+                    <Link href={`https://rinkeby.etherscan.io/tx/${paymentMutation.data?.payoutHash}`}>
+                      {paymentMutation.data?.payoutHash}
+                    </Link>
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Text fontWeight="600">Purchasing this item would require 2 steps</Text>
+                  <Text fontSize="sm">1: A transaction to approve transfer money from your account</Text>
+                  <Text fontSize="sm">2: A transaction to make the payment to the seller</Text>
+                </>
+              )}
             </Stack>
 
             {active ? (
-              <Button onClick={onOpen} w="full" transform="scale(1.05)" size="lg" fontSize="md">
+              <Button onClick={onOpen} isLoading={paymentMutation.isLoading} w="full" transform="scale(1.05)" size="lg" fontSize="md">
                 Buy Now
               </Button>
             ) : (
@@ -128,13 +206,22 @@ const Home = () => {
                 </chakra.div>
               </chakra.div>
 
-              <Select placeholder="Select payment token">
+              <Select value={selectedToken} onChange={(e) => setSelectedToken(e.target.value)} placeholder="Select payment token">
                 <option value="USDT">USDT</option>
                 <option value="USDC">USDC</option>
                 <option value="DAI">DAI</option>
               </Select>
 
-              <Button>Pay</Button>
+              <Button
+                size="lg"
+                isLoading={paymentMutation.isLoading}
+                onClick={() => {
+                  paymentMutation.mutate(selectedToken);
+                  onClose();
+                }}
+              >
+                Pay with {selectedToken}
+              </Button>
             </Stack>
           </ModalBody>
         </ModalContent>
