@@ -15,7 +15,7 @@ describe("Payment", () => {
   });
 
   beforeEach(async () => {
-    const PaymentFactory = await ethers.getContractFactory("Payment");
+    const PaymentFactory = await ethers.getContractFactory("SwipePayment");
     const CoinFactory = await ethers.getContractFactory("TestStable");
 
     payment = await PaymentFactory.connect(deployer).deploy();
